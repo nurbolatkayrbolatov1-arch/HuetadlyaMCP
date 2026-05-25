@@ -1,12 +1,15 @@
+import os
 from mcp.server.fastmcp import FastMCP
 import httpx
 import json
 
+# 1. Получаем динамический порт от Railway (или 8000 для локального теста)
+PORT = int(os.environ.get("PORT", 8000))
+
 mcp = FastMCP(
     name="cable-network-analyzer",
     host="0.0.0.0",
-    port=8000,
-    stateless_http=True,   # важно для облачных платформ
+    port=PORT,
 )
 
 BASE_URL = "https://techa.etquickprice.kz/ds/map/api/tables/mit_rme_port"
@@ -151,12 +154,7 @@ def traverse_problem_path(port_id: int) -> str:
         return json.dumps({"status": "error", "message": str(e)})
 
 
-if __name__ == "__main__":
-    print("Инструменты: ping, check_api, get_cable_impact, get_problem_zones, traverse_problem_path, get_map_html")
-    print("Запуск MCP сервера на порту 8000...")
-    mcp.run(transport="streamable-http")
-
-
+# 2. Инструмент get_map_html перенесен ВЫШЕ блока запуска сервера
 @mcp.tool()
 def get_map_html(port_id: int) -> str:
     """Сгенерировать интерактивную HTML-карту кабельной сети для порта."""
@@ -289,7 +287,6 @@ buildings.forEach(b => {{
 </body>
 </html>"""
 
-        # Сохраняем HTML в файл и отдаём путь
         import tempfile, os
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".html",
                                           mode="w", encoding="utf-8")
@@ -304,3 +301,11 @@ buildings.forEach(b => {{
 
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
+
+
+if __name__ == "__main__":
+    print("Инструменты: ping, check_api, get_cable_impact, get_problem_zones, traverse_problem_path, get_map_html")
+    print(f"Запуск MCP сервера на порту {PORT}...")
+    
+    # 3. Запускаем сервер с транспортом sse, чтобы Alem AI мог к нему подключиться
+    mcp.run(transport="sse")
