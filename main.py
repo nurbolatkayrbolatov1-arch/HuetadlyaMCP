@@ -26,7 +26,7 @@ def check_api(port_id: int = 76919823) -> str:
     """Проверить доступность API и вернуть данные по порту."""
     try:
         url = f"{BASE_URL}/{port_id}/impact"
-        with httpx.Client(timeout=15.0, verify=False) as client:
+        with httpx.Client(timeout=60.0, verify=False) as client:
             resp = client.get(url, headers={"Accept": "application/json"})
             resp.raise_for_status()
             data = resp.json()
