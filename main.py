@@ -3,39 +3,12 @@ MCP-сервер для анализа сети Астаны
 Отвечает на все вопросы о скорости, районах, портах и инфраструктуре
 """
 from mcp.server.fastmcp import FastMCP
-import httpx, json, random, math, os
-from data import RAW_POINTS # Импортируем наши "захардкоженные" данные
+import httpx, json, random, math
+from datetime import datetime, timedelta
 
-mcp = FastMCP(name="astana-network-analyzer")
+mcp = FastMCP(name="astana-network-analyzer", host="0.0.0.0", port=8000, stateless_http=True)
+
 BASE_URL = "https://techa.etquickprice.kz/ds/map/api/tables/mit_rme_port"
-
-# Формируем сетку (тепловую карту) из импортированных точек
-GRID = {}
-for pt in RAW_POINTS:
-    rlat, rlon = round(pt['lat'], 3), round(pt['lon'], 3)
-    key = (rlat, rlon)
-    if key not in GRID:
-        GRID[key] = {'dl_sum': 0, 'ul_sum': 0, 'ping_sum': 0, 'count': 0}
-    GRID[key]['dl_sum'] += pt['dl']
-    GRID[key]['ul_sum'] += pt['ul']
-    GRID[key]['ping_sum'] += pt['ping']
-    GRID[key]['count'] += 1
-
-for k in GRID:
-    c = GRID[k]['count']
-    GRID[k]['avg_dl'] = GRID[k]['dl_sum'] / c
-    GRID[k]['avg_ul'] = GRID[k]['ul_sum'] / c
-    GRID[k]['avg_ping'] = GRID[k]['ping_sum'] / c
-
-def haversine(lat1, lon1, lat2, lon2):
-    R = 6371000
-    phi1, phi2 = math.radians(lat1), math.radians(lat2)
-    dphi = math.radians(lat2 - lat1)
-    dlambda = math.radians(lon2 - lon1)
-    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-# ... (дальше твой код функций, он остаётся без изменений!)
 
 # ── Реальные данные по районам (из вашего CSV) ──────────────────────────────
 DISTRICTS = {
