@@ -6,7 +6,7 @@ from mcp.server.fastmcp import FastMCP
 import httpx, json, random, math
 from datetime import datetime, timedelta
 from data import RAW_POINTS
-
+from math import radians, sin, cos, sqrt, atan2
 
 BASE_URL = "https://techa.etquickprice.kz/ds/map/api/tables/mit_rme_port"
 
@@ -29,6 +29,26 @@ MONTHLY_TREND = {
 }
 
 MONTHS = ["Декабрь", "Январь", "Февраль", "Март", "Апрель", "Май"]
+
+def haversine(lat1, lon1, lat2, lon2):
+    """
+    Distance between two coordinates in meters
+    """
+    R = 6371000
+
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+
+    a = (
+        sin(dlat / 2) ** 2
+        + cos(radians(lat1))
+        * cos(radians(lat2))
+        * sin(dlon / 2) ** 2
+    )
+
+    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+
+    return R * c
 
 
 def avg_city():
