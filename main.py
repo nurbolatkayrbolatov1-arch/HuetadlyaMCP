@@ -500,40 +500,41 @@ def get_client_loss_risk() -> str:
 
 
 @mcp.tool()
+@mcp.tool()
 def get_speed_in_radius(lat: float, lon: float, radius_meters: int = 500) -> str:
     """
-    Анализ скорости в радиусе от адреса по реальным данным из CSV.
+    Анализ скорости в радиусе от адреса по точным данным из CSV.
     Отвечает на: 'Анализируй скорость по координатам...', 'Какая скорость у меня дома?'
     Параметры: lat, lon — координаты, radius_meters — радиус в метрах.
     """
-    nearby_cells = []
+    nearby_points = []
     
-    # Ищем все квадраты из нашей тепловой карты, которые попадают в радиус
-    for (glat, glon), data in GRID.items():
-        dist = haversine(lat, lon, glat, glon)
+    # Ищем все ТОЧНЫЕ замеры, которые попадают в радиус
+    for pt in RAW_POINTS:
+        dist = haversine(lat, lon, pt['lat'], pt['lon'])
         if dist <= radius_meters:
-            nearby_cells.append((dist, data))
+            nearby_points.append(pt)
             
-    if not nearby_cells:
+    if not nearby_points:
         return json.dumps({
             "status": "warning",
             "message": f"В радиусе {radius_meters}м от {lat}, {lon} нет данных о замерах. Попробуйте увеличить радиус.",
             "recommendation": "Возможно, в этом районе отсутствует покрытие сети."
         }, ensure_ascii=False, indent=2)
 
-    # Агрегируем данные найденных точек
-    total_pts = sum(cell['count'] for _, cell in nearby_cells)
-    avg_dl = sum(cell['avg_dl'] * cell['count'] for _, cell in nearby_cells) / total_pts
-    avg_ul = sum(cell['avg_ul'] * cell['count'] for _, cell in nearby_cells) / total_pts
-    avg_ping = sum(cell['avg_ping'] * cell['count'] for _, cell in nearby_cells) / total_pts
+    # Агрегируем данные найденных точных точек
+    total_pts = len(nearby_points)
+    avg_dl = sum(pt['dl'] for pt in nearby_points) / total_pts
+    avg_ul = sum(pt['ul'] for pt in nearby_points) / total_pts
+    avg_ping = sum(pt['ping'] for pt in nearby_points) / total_pts
     
     avg_dl = round(avg_dl, 1)
     
     # Оценка качества связи
     quality = "отличное" if avg_dl >= 150 else "хорошее" if avg_dl >= 100 else "среднее" if avg_dl >= 50 else "плохое"
     
-    # ЛОГИКА ДЛЯ АГЕНТА: если скорость слабая, явно говорим ему проверить порты
-    recommendation = f"В радиусе {radius_meters}м найдено {total_pts} замеров. Средняя скорость {avg_dl} Мбит/с ({quality})."
+    # ЛОГИКА ДЛЯ АГЕНТА: цепная реакция
+    recommendation = f"В радиусе {radius_meters}м найдено {total_pts} точных замеров. Средняя скорость {avg_dl} Мбит/с ({quality})."
     
     if avg_dl < 50:
         recommendation += " ВНИМАНИЕ: Скорость критически низкая! Срочно вызовите инструмент analyze_port_failure или проверьте инфраструктуру."
