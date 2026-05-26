@@ -442,45 +442,40 @@ def get_client_loss_risk() -> str:
 @mcp.tool()
 def get_speed_in_radius(lat: float, lon: float, radius_meters: int = 500) -> str:
     """
-    Анализ скорости в радиусе от адреса.
-    Отвечает на: 'Анализируй скорость в радиусе 500м от моего адреса'
-    Параметры: lat, lon — координаты, radius_meters — радиус в метрах
+    Анализ скорости в радиусе от адреса по РЕАЛЬНЫМ данным из data.py.
+    Отвечает на: 'Анализируй скорость по координатам...', 'Какая скорость у меня дома?'
     """
-    # Определяем район по координатам
-    district = "Есиль"
-    min_dist = float("inf")
-    for name, d in DISTRICTS.items():
-        dlat = d["center"][0] - lat
-        dlon = d["center"][1] - lon
-        dist = math.sqrt(dlat**2 + dlon**2)
-        if dist < min_dist:
-            min_dist = dist
-            district = name
+    nearby_points = []
+    
+    # Ищем все точки из data.py, которые попадают в радиус
+    for pt in RAW_POINTS:
+        dist = haversine(lat, lon, pt['lat'], pt['lon'])
+        if dist <= radius_meters:
+            nearby_points.append(pt)
+            
+    if not nearby_points:
+        return json.dumps({
+            "status": "warning",
+            "message": f"В радиусе {radius_meters}м от координат {lat}, {lon} нет замеров в базе.",
+        }, ensure_ascii=False, indent=2)
 
-    d = DISTRICTS[district]
-
-    # Мок-данные для радиуса
-    pts_in_radius = max(3, int(d["pts"] * radius_meters / 10000))
-    avg_local = round(d["avg_dl"] + random.uniform(-15, 15), 1)
-    bad_local = round(d["bad_pct"] + random.uniform(-5, 10), 1)
-
+    # Считаем среднее по найденным точкам
+    total_pts = len(nearby_points)
+    avg_dl = round(sum(pt['dl'] for pt in nearby_points) / total_pts, 1)
+    avg_ul = round(sum(pt['ul'] for pt in nearby_points) / total_pts, 1)
+    avg_ping = round(sum(pt['ping'] for pt in nearby_points) / total_pts, 1)
+    
+    quality = "отличное" if avg_dl >= 150 else "хорошее" if avg_dl >= 100 else "среднее" if avg_dl >= 50 else "плохое"
+    
     return json.dumps({
-        "status":           "ok",
-        "location":         {"lat": lat, "lon": lon},
-        "radius_meters":    radius_meters,
-        "district":         district,
-        "measurements_found": pts_in_radius,
-        "avg_download_mbps": avg_local,
-        "avg_ping_ms":      round(d["avg_ping"] + random.uniform(-5, 5), 1),
-        "bad_speed_pct":    max(0, bad_local),
-        "quality": (
-            "отличное" if avg_local >= 150 else
-            "хорошее"  if avg_local >= 100 else
-            "среднее"  if avg_local >= 50  else "плохое"
-        ),
-        "recommendation": f"В радиусе {radius_meters}м средняя скорость {avg_local} Мбит/с — {'подходит для бизнеса' if avg_local >= 100 else 'могут быть проблемы со скоростью'}"
+        "status": "ok",
+        "measurements_found": total_pts,
+        "avg_download_mbps": avg_dl,
+        "avg_upload_mbps": avg_ul,
+        "avg_ping_ms": avg_ping,
+        "quality": quality,
+        "recommendation": f"В радиусе {radius_meters}м средняя скорость {avg_dl} Мбит/с. {'Для бизнеса подходит' if avg_dl >= 100 else 'Могут быть проблемы со скоростью'}."
     }, ensure_ascii=False, indent=2)
-
 
 @mcp.tool()
 def get_all_districts_summary() -> str:
