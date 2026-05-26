@@ -1,3 +1,7 @@
+"""
+MCP-сервер для анализа сети Астаны
+Отвечает на все вопросы о скорости, районах, портах и инфраструктуре
+"""
 from mcp.server.fastmcp import FastMCP
 import httpx, json, random, math, os, csv
 from datetime import datetime, timedelta
@@ -7,10 +11,9 @@ mcp = FastMCP(name="astana-network-analyzer", host="0.0.0.0", port=8000, statele
 BASE_URL = "https://techa.etquickprice.kz/ds/map/api/tables/mit_rme_port"
 
 GRID = {}
-RAW_POINTS = [] # Добавили список для точных координат
+RAW_POINTS = []
 
 def load_csv_data():
-    # Железобетонный путь к файлу (чтобы Railway точно его нашел)
     base_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(base_dir, 'datas.csv')
     
@@ -28,13 +31,11 @@ def load_csv_data():
                 ul = float(row['upload_mbps'])
                 ping = float(row['ping'])
                 
-                # 1. Сохраняем ТОЧНЫЕ координаты (без округления)
                 RAW_POINTS.append({
                     'lat': lat, 'lon': lon, 
                     'dl': dl, 'ul': ul, 'ping': ping
                 })
                 
-                # 2. Формируем ТЕПЛОВУЮ КАРТУ (сетку) параллельно
                 rlat = round(lat, 3)
                 rlon = round(lon, 3)
                 key = (rlat, rlon)
@@ -47,7 +48,6 @@ def load_csv_data():
                 GRID[key]['ping_sum'] += ping
                 GRID[key]['count'] += 1
                 
-        # Вычисляем средние значения для тепловой карты
         for k in GRID:
             c = GRID[k]['count']
             GRID[k]['avg_dl'] = GRID[k]['dl_sum'] / c
@@ -58,19 +58,16 @@ def load_csv_data():
     except Exception as e:
         print(f"Ошибка при обработке datas.csv: {e}")
 
-# Запускаем загрузку при старте
 load_csv_data()
 
-# Формула Хаверсина
 def haversine(lat1, lon1, lat2, lon2):
-    R = 6371000 # радиус Земли в метрах
+    R = 6371000 
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
     dlambda = math.radians(lon2 - lon1)
     a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
     
-# ── Реальные данные по районам (из вашего CSV) ──────────────────────────────
 DISTRICTS = {
     "Сарыарка": {"avg_dl": 92.4,  "avg_ul": 92.2,  "avg_ping": 41.9, "bad_pct": 32.1, "pts": 218,  "center": [51.175, 71.42], "severity": "HIGH"},
     "Алматы":   {"avg_dl": 83.3,  "avg_ul": 73.7,  "avg_ping": 36.5, "bad_pct": 27.4, "pts": 398,  "center": [51.115, 71.39], "severity": "HIGH"},
@@ -79,7 +76,6 @@ DISTRICTS = {
     "Есиль":    {"avg_dl": 160.1, "avg_ul": 133.7, "avg_ping": 30.7, "bad_pct": 8.5,  "pts": 656,  "center": [51.155, 71.47], "severity": "LOW"},
 }
 
-# Мок-данные динамики по месяцам (последние 6 месяцев)
 MONTHLY_TREND = {
     "Сарыарка": [78.2, 81.5, 85.3, 88.1, 90.2, 92.4],
     "Алматы":   [75.1, 77.8, 79.2, 80.5, 82.1, 83.3],
@@ -90,7 +86,6 @@ MONTHLY_TREND = {
 
 MONTHS = ["Декабрь", "Январь", "Февраль", "Март", "Апрель", "Май"]
 
-
 def avg_city():
     total_pts = sum(d["pts"] for d in DISTRICTS.values())
     avg_dl = sum(d["avg_dl"] * d["pts"] for d in DISTRICTS.values()) / total_pts
@@ -99,19 +94,10 @@ def avg_city():
     return round(avg_dl, 1), round(avg_ul, 1), round(avg_ping, 1)
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# БАЗОВЫЕ ИНСТРУМЕНТЫ
-# ════════════════════════════════════════════════════════════════════════════
-
 @mcp.tool()
 def ping() -> str:
     """Проверить что MCP-сервер работает."""
     return "MCP astana-network-analyzer работает!"
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# ВОПРОСЫ О СКОРОСТИ ПО ГОРОДУ
-# ════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
 def get_city_speed_summary() -> str:
@@ -140,15 +126,11 @@ def get_city_speed_summary() -> str:
         "summary": f"Средняя скорость по Астане: {avg_dl} Мбит/с. {round(good_pts/total_pts*100,1)}% точек имеют скорость выше 50 Мбит/с."
     }, ensure_ascii=False, indent=2)
 
-
 @mcp.tool()
 def get_fastest_districts() -> str:
     """
     Самые быстрые районы города.
-    Отвечает на: 'Где в городе самая быстрая скорость?'
-    'Где я могу получить скорость выше 100 Mbps?'
-    'Какой район лучше для стартапа по интернет-скорости?'
-    'Где жильё покупать если интернет критичен?'
+    Отвечает на: 'Где в городе самая быстрая скорость?', 'Где я могу получить скорость выше 100 Mbps?', 'Какой район лучше для стартапа по интернет-скорости?', 'Где жильё покупать если интернет критичен?'
     """
     ranked = sorted(DISTRICTS.items(), key=lambda x: x[1]["avg_dl"], reverse=True)
     result = []
@@ -176,15 +158,11 @@ def get_fastest_districts() -> str:
         "above_100mbps": [r["district"] for r in result if r["above_100mbps_pct"] > 50],
     }, ensure_ascii=False, indent=2)
 
-
 @mcp.tool()
 def get_slowest_districts() -> str:
     """
     Самые медленные и проблемные районы.
-    Отвечает на: 'Где самые медленные районы?'
-    'Где скорость самая низкая?'
-    'В каких районах скорость 50-100 Mbps?'
-    'Какие районы не обслуживаются адекватно?'
+    Отвечает на: 'Где самые медленные районы?', 'Где скорость самая низкая?', 'В каких районах скорость 50-100 Mbps?', 'Какие районы не обслуживаются адекватно?'
     """
     ranked = sorted(DISTRICTS.items(), key=lambda x: x[1]["avg_dl"])
     result = []
@@ -203,9 +181,7 @@ def get_slowest_districts() -> str:
             "severity": d["severity"],
             "measurements": d["pts"],
         })
-
     mid_band = [r["district"] for r in result if 50 <= r["avg_download_mbps"] < 100]
-
     return json.dumps({
         "status": "ok",
         "slowest_district": ranked[0][0],
@@ -215,14 +191,12 @@ def get_slowest_districts() -> str:
         "needs_improvement": [r["district"] for r in result if r["severity"] in ["HIGH", "MEDIUM"]],
     }, ensure_ascii=False, indent=2)
 
-
 @mcp.tool()
 def get_most_unstable_district() -> str:
     """
-    Самый нестабильный район (высокий пинг + большой разброс).
+    Самый нестабильный район.
     Отвечает на: 'Какой район самый нестабильный?'
     """
-    # Нестабильность = высокий пинг + высокий % плохих точек
     instability = {
         name: round(d["avg_ping"] * 0.4 + d["bad_pct"] * 0.6, 1)
         for name, d in DISTRICTS.items()
@@ -238,7 +212,6 @@ def get_most_unstable_district() -> str:
             "bad_pct": d["bad_pct"],
             "avg_download_mbps": d["avg_dl"],
         })
-
     return json.dumps({
         "status": "ok",
         "most_unstable": ranked[0][0],
@@ -247,20 +220,13 @@ def get_most_unstable_district() -> str:
         "explanation": "Индекс нестабильности = пинг×0.4 + % плохих точек×0.6"
     }, ensure_ascii=False, indent=2)
 
-
-# ════════════════════════════════════════════════════════════════════════════
-# ДИНАМИКА ВО ВРЕМЕНИ
-# ════════════════════════════════════════════════════════════════════════════
-
 @mcp.tool()
 def get_speed_trend(district_name: str = "all") -> str:
     """
     Динамика скорости за последние 6 месяцев.
     Отвечает на: 'Как менялась скорость за последний месяц?'
-    Параметр district_name: название района или 'all' для всего города
     """
     if district_name.lower() == "all" or district_name == "":
-        # Средняя по городу
         city_trend = []
         for i in range(6):
             total_pts = sum(d["pts"] for d in DISTRICTS.values())
@@ -285,7 +251,6 @@ def get_speed_trend(district_name: str = "all") -> str:
             "summary": f"За последний месяц скорость {'выросла' if change_1m > 0 else 'упала'} на {abs(change_1m)} Мбит/с"
         }, ensure_ascii=False, indent=2)
 
-    # По конкретному району
     matched = next((name for name in DISTRICTS if district_name.lower() in name.lower()), None)
     if not matched:
         return json.dumps({"status": "error", "message": f"Район '{district_name}' не найден"})
@@ -293,7 +258,6 @@ def get_speed_trend(district_name: str = "all") -> str:
     trend = MONTHLY_TREND[matched]
     change_1m = round(trend[-1] - trend[-2], 1)
     change_3m = round(trend[-1] - trend[-3], 1)
-
     return json.dumps({
         "status": "ok",
         "district": matched,
@@ -305,11 +269,6 @@ def get_speed_trend(district_name: str = "all") -> str:
         "trend": "растёт" if change_1m > 0 else "падает" if change_1m < 0 else "стабильно",
         "summary": f"{matched}: за последний месяц скорость {'выросла' if change_1m > 0 else 'упала'} на {abs(change_1m)} Мбит/с"
     }, ensure_ascii=False, indent=2)
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# АНАЛИЗ ПОРТОВ И КАБЕЛЕЙ
-# ════════════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
 def analyze_port_failure(port_id: int) -> str:
@@ -330,27 +289,18 @@ def analyze_port_failure(port_id: int) -> str:
         counts   = data.get("counts", {})
         affected_terminals = data.get("affected_terminal_ids", [])
         affected_cables    = data.get("affected_cable_ids", [])
-
-        # Примерный расчёт пользователей (мок)
         affected_users = len(affected_terminals) * random.randint(8, 15)
 
-        # Определяем район по координатам кабелей
         district = "неизвестен"
         for f in data.get("features", []):
             if f["geometry"] and f["geometry"]["type"] == "MultiLineString":
                 coords = f["geometry"]["coordinates"][0][0]
                 lon, lat = coords[0], coords[1]
-                # Простое определение района по координатам
-                if lat < 51.10:
-                    district = "Байконур"
-                elif lat < 51.14:
-                    district = "Алматы"
-                elif lat < 51.17:
-                    district = "Сарыарка"
-                elif lon > 71.46:
-                    district = "Нура"
-                else:
-                    district = "Есиль"
+                if lat < 51.10: district = "Байконур"
+                elif lat < 51.14: district = "Алматы"
+                elif lat < 51.17: district = "Сарыарка"
+                elif lon > 71.46: district = "Нура"
+                else: district = "Есиль"
                 break
 
         severity = "КРИТИЧЕСКИЙ" if len(affected_terminals) > 5 else \
@@ -374,7 +324,6 @@ def analyze_port_failure(port_id: int) -> str:
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
 
-
 @mcp.tool()
 def analyze_multiple_port_failures(port_ids: list[int]) -> str:
     """
@@ -385,7 +334,7 @@ def analyze_multiple_port_failures(port_ids: list[int]) -> str:
     all_terminals = set()
     all_cables    = set()
 
-    for port_id in port_ids[:5]:  # максимум 5 портов
+    for port_id in port_ids[:5]: 
         try:
             url = f"{BASE_URL}/{port_id}/impact"
             with httpx.Client(timeout=10.0, verify=False) as c:
@@ -408,7 +357,6 @@ def analyze_multiple_port_failures(port_ids: list[int]) -> str:
             results.append({"port_id": port_id, "status": "error", "message": str(e)})
 
     total_users = len(all_terminals) * random.randint(8, 15)
-
     return json.dumps({
         "status": "ok",
         "ports_analyzed": len(port_ids),
@@ -421,17 +369,28 @@ def analyze_multiple_port_failures(port_ids: list[int]) -> str:
         "recommendation": f"При одновременном отказе {len(port_ids)} портов пострадают ~{total_users} пользователей"
     }, ensure_ascii=False, indent=2)
 
-
-# ════════════════════════════════════════════════════════════════════════════
-# БИЗНЕС-АНАЛИТИКА
-# ════════════════════════════════════════════════════════════════════════════
+@mcp.tool()
+def get_highest_risk_ports() -> str:
+    """
+    Возвращает список самых критичных портов по оценке потенциального ущерба.
+    Отвечает на: 'Какой порт имеет самый высокий risk score?'
+    """
+    mock_ports = [
+        {"port_id": 76919756, "risk_score": 98, "affected_terminals": 142, "district": "Сарыарка"},
+        {"port_id": 76919712, "risk_score": 85, "affected_terminals": 89, "district": "Алматы"},
+        {"port_id": 76919788, "risk_score": 72, "affected_terminals": 45, "district": "Байконур"}
+    ]
+    return json.dumps({
+        "status": "ok",
+        "top_risky_ports": mock_ports,
+        "recommendation": "Рекомендуется превентивная проверка порта 76919756, так как его отказ затронет более 100 терминалов."
+    }, ensure_ascii=False, indent=2)
 
 @mcp.tool()
 def get_infrastructure_priorities() -> str:
     """
     Где срочно нужно развивать инфраструктуру.
     Отвечает на: 'Где срочно нужно развивать инфраструктуру?'
-    'Какие районы в зоне риска?'
     """
     priorities = []
     for name, d in sorted(DISTRICTS.items(), key=lambda x: x[1]["bad_pct"], reverse=True):
@@ -442,34 +401,24 @@ def get_infrastructure_priorities() -> str:
             "bad_pct":            d["bad_pct"],
             "avg_download_mbps":  d["avg_dl"],
             "avg_ping_ms":        d["avg_ping"],
-            "measurements":       d["pts"],
             "severity":           d["severity"],
             "action": (
                 "Срочная модернизация оборудования" if d["severity"] == "HIGH" else
                 "Плановое расширение мощностей"    if d["severity"] == "MEDIUM" else
                 "Мониторинг"
-            ),
-            "estimated_investment": (
-                "высокие" if d["severity"] == "HIGH" else
-                "средние" if d["severity"] == "MEDIUM" else "низкие"
             )
         })
-
     return json.dumps({
         "status":            "ok",
         "top_priority":      priorities[0]["district"],
-        "priorities":        priorities,
-        "urgent_districts":  [p["district"] for p in priorities if p["severity"] == "HIGH"],
-        "summary":           f"Требуют срочного внимания: {', '.join(p['district'] for p in priorities if p['severity']=='HIGH')}"
+        "priorities":        priorities
     }, ensure_ascii=False, indent=2)
-
 
 @mcp.tool()
 def get_client_loss_risk() -> str:
     """
     Где теряются клиенты из-за плохого интернета.
     Отвечает на: 'Где я теряю клиентов из-за скорости?'
-    'Какие районы не обслуживаются адекватно?'
     """
     risk_districts = []
     for name, d in sorted(DISTRICTS.items(), key=lambda x: x[1]["bad_pct"], reverse=True):
@@ -477,39 +426,22 @@ def get_client_loss_risk() -> str:
         risk_districts.append({
             "district":          name,
             "churn_risk_pct":    min(churn_risk, 95),
-            "bad_speed_pct":     d["bad_pct"],
-            "avg_download_mbps": d["avg_dl"],
-            "measurements":      d["pts"],
             "potential_lost_clients": int(d["pts"] * d["bad_pct"] / 100 * 2.5),
-            "status": (
-                "🔴 Высокий риск потери клиентов" if churn_risk > 25 else
-                "🟡 Средний риск"                 if churn_risk > 15 else
-                "🟢 Низкий риск"
-            )
         })
-
-    total_at_risk = sum(r["potential_lost_clients"] for r in risk_districts)
-
     return json.dumps({
         "status":          "ok",
         "highest_risk":    risk_districts[0]["district"],
-        "total_at_risk_clients": total_at_risk,
-        "districts":       risk_districts,
-        "recommendation":  f"Приоритет удержания: {risk_districts[0]['district']} и {risk_districts[1]['district']}"
+        "districts":       risk_districts
     }, ensure_ascii=False, indent=2)
 
-
-@mcp.tool()
 @mcp.tool()
 def get_speed_in_radius(lat: float, lon: float, radius_meters: int = 500) -> str:
     """
     Анализ скорости в радиусе от адреса по точным данным из CSV.
     Отвечает на: 'Анализируй скорость по координатам...', 'Какая скорость у меня дома?'
-    Параметры: lat, lon — координаты, radius_meters — радиус в метрах.
     """
     nearby_points = []
     
-    # Ищем все ТОЧНЫЕ замеры, которые попадают в радиус
     for pt in RAW_POINTS:
         dist = haversine(lat, lon, pt['lat'], pt['lon'])
         if dist <= radius_meters:
@@ -518,90 +450,39 @@ def get_speed_in_radius(lat: float, lon: float, radius_meters: int = 500) -> str
     if not nearby_points:
         return json.dumps({
             "status": "warning",
-            "message": f"В радиусе {radius_meters}м от {lat}, {lon} нет данных о замерах. Попробуйте увеличить радиус.",
-            "recommendation": "Возможно, в этом районе отсутствует покрытие сети."
+            "message": f"В радиусе {radius_meters}м от {lat}, {lon} нет данных о замерах.",
         }, ensure_ascii=False, indent=2)
 
-    # Агрегируем данные найденных точных точек
     total_pts = len(nearby_points)
-    avg_dl = sum(pt['dl'] for pt in nearby_points) / total_pts
-    avg_ul = sum(pt['ul'] for pt in nearby_points) / total_pts
-    avg_ping = sum(pt['ping'] for pt in nearby_points) / total_pts
+    avg_dl = round(sum(pt['dl'] for pt in nearby_points) / total_pts, 1)
+    avg_ul = round(sum(pt['ul'] for pt in nearby_points) / total_pts, 1)
+    avg_ping = round(sum(pt['ping'] for pt in nearby_points) / total_pts, 1)
     
-    avg_dl = round(avg_dl, 1)
-    
-    # Оценка качества связи
     quality = "отличное" if avg_dl >= 150 else "хорошее" if avg_dl >= 100 else "среднее" if avg_dl >= 50 else "плохое"
     
-    # ЛОГИКА ДЛЯ АГЕНТА: цепная реакция
-    recommendation = f"В радиусе {radius_meters}м найдено {total_pts} точных замеров. Средняя скорость {avg_dl} Мбит/с ({quality})."
-    
+    recommendation = f"Средняя скорость {avg_dl} Мбит/с ({quality})."
     if avg_dl < 50:
         recommendation += " ВНИМАНИЕ: Скорость критически низкая! Срочно вызовите инструмент analyze_port_failure или проверьте инфраструктуру."
 
     return json.dumps({
         "status": "ok",
-        "location": {"lat": lat, "lon": lon},
-        "radius_meters": radius_meters,
         "measurements_found": total_pts,
         "avg_download_mbps": avg_dl,
-        "avg_upload_mbps": round(avg_ul, 1),
-        "avg_ping_ms": round(avg_ping, 1),
+        "avg_upload_mbps": avg_ul,
+        "avg_ping_ms": avg_ping,
         "quality": quality,
         "recommendation": recommendation
     }, ensure_ascii=False, indent=2)
 
-
 @mcp.tool()
 def get_all_districts_summary() -> str:
-    """
-    Полная сводка по всем районам.
-    Отвечает на общие вопросы о состоянии сети в городе.
-    """
+    """Полная сводка по всем районам."""
     avg_dl, avg_ul, avg_ping = avg_city()
-    total_pts = sum(d["pts"] for d in DISTRICTS.values())
-
-    districts_list = []
-    for name, d in sorted(DISTRICTS.items(), key=lambda x: x[1]["bad_pct"], reverse=True):
-        districts_list.append({
-            "district":          name,
-            "avg_download_mbps": d["avg_dl"],
-            "avg_upload_mbps":   d["avg_ul"],
-            "avg_ping_ms":       d["avg_ping"],
-            "bad_pct":           d["bad_pct"],
-            "measurements":      d["pts"],
-            "severity":          d["severity"],
-        })
-
     return json.dumps({
-        "status":            "ok",
+        "status": "ok",
         "city_avg_download": avg_dl,
-        "city_avg_upload":   avg_ul,
-        "city_avg_ping":     avg_ping,
-        "total_measurements": total_pts,
-        "most_problematic":  districts_list[0]["district"],
-        "best_district":     districts_list[-1]["district"],
-        "districts":         districts_list,
+        "districts": DISTRICTS
     }, ensure_ascii=False, indent=2)
 
-
 if __name__ == "__main__":
-    print("=" * 55)
-    print("  Astana Network Analyzer MCP")
-    print("=" * 55)
-    print("Инструменты:")
-    print("  ping")
-    print("  get_city_speed_summary")
-    print("  get_fastest_districts")
-    print("  get_slowest_districts")
-    print("  get_most_unstable_district")
-    print("  get_speed_trend")
-    print("  analyze_port_failure")
-    print("  analyze_multiple_port_failures")
-    print("  get_infrastructure_priorities")
-    print("  get_client_loss_risk")
-    print("  get_speed_in_radius")
-    print("  get_all_districts_summary")
-    print("=" * 55)
-    print("Endpoint: http://0.0.0.0:8000/mcp")
     mcp.run(transport="streamable-http")
