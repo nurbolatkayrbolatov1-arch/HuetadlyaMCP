@@ -3,13 +3,62 @@ MCP-сервер для анализа сети Астаны
 Отвечает на все вопросы о скорости, районах, портах и инфраструктуре
 """
 from mcp.server.fastmcp import FastMCP
-import httpx, json, random, math
+import httpx, json, random, math, os, csv
 from datetime import datetime, timedelta
 
 mcp = FastMCP(name="astana-network-analyzer", host="0.0.0.0", port=8000, stateless_http=True)
 
 BASE_URL = "https://techa.etquickprice.kz/ds/map/api/tables/mit_rme_port"
 
+GRID = {}
+def load_csv_data():
+    file_path = os.path.join(os.path.dirname(__file__), 'datas.csv')
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                lat = float(row['latitude'])
+                lon = float(row['longitude'])
+                dl = float(row['download_mbps'])
+                ul = float(row['upload_mbps'])
+                ping = float(row['ping'])
+                
+                # Округление для тепловой карты (сетка ~100x100м)
+                rlat = round(lat, 3)
+                rlon = round(lon, 3)
+                key = (rlat, rlon)
+                
+                if key not in GRID:
+                    GRID[key] = {'dl_sum': 0, 'ul_sum': 0, 'ping_sum': 0, 'count': 0}
+                
+                GRID[key]['dl_sum'] += dl
+                GRID[key]['ul_sum'] += ul
+                GRID[key]['ping_sum'] += ping
+                GRID[key]['count'] += 1
+                
+        # Вычисляем средние значения для каждого "квадрата"
+        for k in GRID:
+            c = GRID[k]['count']
+            GRID[k]['avg_dl'] = GRID[k]['dl_sum'] / c
+            GRID[k]['avg_ul'] = GRID[k]['ul_sum'] / c
+            GRID[k]['avg_ping'] = GRID[k]['ping_sum'] / c
+            
+        print(f"Успешно загружено и сгруппировано {len(GRID)} зон на основе CSV.")
+    except Exception as e:
+        print(f"Ошибка при загрузке datas.csv: {e}. Проверьте, что файл лежит рядом со скриптом.")
+
+# Запускаем загрузку при старте
+load_csv_data()
+
+# Формула Хаверсина для вычисления расстояния в метрах между координатами
+def haversine(lat1, lon1, lat2, lon2):
+    R = 6371000 # радиус Земли в метрах
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+    
 # ── Реальные данные по районам (из вашего CSV) ──────────────────────────────
 DISTRICTS = {
     "Сарыарка": {"avg_dl": 92.4,  "avg_ul": 92.2,  "avg_ping": 41.9, "bad_pct": 32.1, "pts": 218,  "center": [51.175, 71.42], "severity": "HIGH"},
@@ -442,43 +491,52 @@ def get_client_loss_risk() -> str:
 @mcp.tool()
 def get_speed_in_radius(lat: float, lon: float, radius_meters: int = 500) -> str:
     """
-    Анализ скорости в радиусе от адреса.
-    Отвечает на: 'Анализируй скорость в радиусе 500м от моего адреса'
-    Параметры: lat, lon — координаты, radius_meters — радиус в метрах
+    Анализ скорости в радиусе от адреса по реальным данным из CSV.
+    Отвечает на: 'Анализируй скорость по координатам...', 'Какая скорость у меня дома?'
+    Параметры: lat, lon — координаты, radius_meters — радиус в метрах.
     """
-    # Определяем район по координатам
-    district = "Есиль"
-    min_dist = float("inf")
-    for name, d in DISTRICTS.items():
-        dlat = d["center"][0] - lat
-        dlon = d["center"][1] - lon
-        dist = math.sqrt(dlat**2 + dlon**2)
-        if dist < min_dist:
-            min_dist = dist
-            district = name
+    nearby_cells = []
+    
+    # Ищем все квадраты из нашей тепловой карты, которые попадают в радиус
+    for (glat, glon), data in GRID.items():
+        dist = haversine(lat, lon, glat, glon)
+        if dist <= radius_meters:
+            nearby_cells.append((dist, data))
+            
+    if not nearby_cells:
+        return json.dumps({
+            "status": "warning",
+            "message": f"В радиусе {radius_meters}м от {lat}, {lon} нет данных о замерах. Попробуйте увеличить радиус.",
+            "recommendation": "Возможно, в этом районе отсутствует покрытие сети."
+        }, ensure_ascii=False, indent=2)
 
-    d = DISTRICTS[district]
-
-    # Мок-данные для радиуса
-    pts_in_radius = max(3, int(d["pts"] * radius_meters / 10000))
-    avg_local = round(d["avg_dl"] + random.uniform(-15, 15), 1)
-    bad_local = round(d["bad_pct"] + random.uniform(-5, 10), 1)
+    # Агрегируем данные найденных точек
+    total_pts = sum(cell['count'] for _, cell in nearby_cells)
+    avg_dl = sum(cell['avg_dl'] * cell['count'] for _, cell in nearby_cells) / total_pts
+    avg_ul = sum(cell['avg_ul'] * cell['count'] for _, cell in nearby_cells) / total_pts
+    avg_ping = sum(cell['avg_ping'] * cell['count'] for _, cell in nearby_cells) / total_pts
+    
+    avg_dl = round(avg_dl, 1)
+    
+    # Оценка качества связи
+    quality = "отличное" if avg_dl >= 150 else "хорошее" if avg_dl >= 100 else "среднее" if avg_dl >= 50 else "плохое"
+    
+    # ЛОГИКА ДЛЯ АГЕНТА: если скорость слабая, явно говорим ему проверить порты
+    recommendation = f"В радиусе {radius_meters}м найдено {total_pts} замеров. Средняя скорость {avg_dl} Мбит/с ({quality})."
+    
+    if avg_dl < 50:
+        recommendation += " ВНИМАНИЕ: Скорость критически низкая! Срочно вызовите инструмент analyze_port_failure или проверьте инфраструктуру."
 
     return json.dumps({
-        "status":           "ok",
-        "location":         {"lat": lat, "lon": lon},
-        "radius_meters":    radius_meters,
-        "district":         district,
-        "measurements_found": pts_in_radius,
-        "avg_download_mbps": avg_local,
-        "avg_ping_ms":      round(d["avg_ping"] + random.uniform(-5, 5), 1),
-        "bad_speed_pct":    max(0, bad_local),
-        "quality": (
-            "отличное" if avg_local >= 150 else
-            "хорошее"  if avg_local >= 100 else
-            "среднее"  if avg_local >= 50  else "плохое"
-        ),
-        "recommendation": f"В радиусе {radius_meters}м средняя скорость {avg_local} Мбит/с — {'подходит для бизнеса' if avg_local >= 100 else 'могут быть проблемы со скоростью'}"
+        "status": "ok",
+        "location": {"lat": lat, "lon": lon},
+        "radius_meters": radius_meters,
+        "measurements_found": total_pts,
+        "avg_download_mbps": avg_dl,
+        "avg_upload_mbps": round(avg_ul, 1),
+        "avg_ping_ms": round(avg_ping, 1),
+        "quality": quality,
+        "recommendation": recommendation
     }, ensure_ascii=False, indent=2)
 
 
