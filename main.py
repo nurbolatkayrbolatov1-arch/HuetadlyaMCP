@@ -337,7 +337,7 @@ def analyze_multiple_port_failures(port_ids: list[int]) -> str:
     for port_id in port_ids[:5]: 
         try:
             url = f"{BASE_URL}/{port_id}/impact"
-            with httpx.Client(timeout=10.0, verify=False) as c:
+            with httpx.Client(timeout=60.0, verify=False) as c:
                 r = c.get(url, headers={"Accept": "application/json"})
                 r.raise_for_status()
                 data = r.json()
