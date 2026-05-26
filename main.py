@@ -484,4 +484,11 @@ def get_all_districts_summary() -> str:
     }, ensure_ascii=False, indent=2)
 
 if __name__ == "__main__":
-    mcp.run(transport="sse")
+    # Railway динамически выдает порт, поэтому обязательно берем его из окружения (иначе сервер не запустится)
+    port = int(os.environ.get("PORT", 8000))
+    
+    print("=" * 55)
+    print(f"  Запуск Astana Network Analyzer на порту {port} (Streamable HTTP)")
+    print("=" * 55)
+    
+    mcp.run(transport="streamable-http", host="0.0.0.0", port=port)
