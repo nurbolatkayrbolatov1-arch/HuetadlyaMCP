@@ -6,7 +6,7 @@ from mcp.server.fastmcp import FastMCP
 import httpx, json, random, math, os, csv
 from datetime import datetime, timedelta
 
-mcp = FastMCP(name="astana-network-analyzer", host="0.0.0.0", port=8000, stateless_http=True)
+mcp = FastMCP(name="astana-network-analyzer", stateless_http=True)
 BASE_URL = "https://techa.etquickprice.kz/ds/map/api/tables/mit_rme_port"
 
 GRID = {}
