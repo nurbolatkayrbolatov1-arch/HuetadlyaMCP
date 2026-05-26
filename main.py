@@ -6,7 +6,8 @@ from mcp.server.fastmcp import FastMCP
 import httpx, json, random, math
 from datetime import datetime, timedelta
 from data import RAW_POINTS
-mcp = FastMCP(name="astana-network-analyzer", host="0.0.0.0", port=8000, stateless_http=True)
+
+print(f"Loaded points: {len(RAW_POINTS)}")mcp = FastMCP(name="astana-network-analyzer", host="0.0.0.0", port=8000, stateless_http=True)
 
 BASE_URL = "https://techa.etquickprice.kz/ds/map/api/tables/mit_rme_port"
 
