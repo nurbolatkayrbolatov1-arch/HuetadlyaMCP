@@ -365,7 +365,7 @@ def analyze_port_failure(port_id: int) -> str:
 
 
 @mcp.tool()
-def analyze_multiple_port_failures(port_ids: list) -> str:
+def analyze_multiple_port_failures(port_ids: list[int]) -> str:
     """
     Анализ одновременного отказа нескольких портов.
     Отвечает на: 'Какие районы в зоне риска при отказе портов N1, N2?'
