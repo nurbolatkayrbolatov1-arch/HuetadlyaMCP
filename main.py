@@ -1,7 +1,3 @@
-"""
-MCP-сервер для анализа сети Астаны
-Отвечает на все вопросы о скорости, районах, портах и инфраструктуре
-"""
 from mcp.server.fastmcp import FastMCP
 import httpx, json, random, math, os, csv
 from datetime import datetime, timedelta
@@ -11,8 +7,17 @@ mcp = FastMCP(name="astana-network-analyzer", host="0.0.0.0", port=8000, statele
 BASE_URL = "https://techa.etquickprice.kz/ds/map/api/tables/mit_rme_port"
 
 GRID = {}
+RAW_POINTS = [] # Добавили список для точных координат
+
 def load_csv_data():
-    file_path = os.path.join(os.path.dirname(__file__), 'datas.csv')
+    # Железобетонный путь к файлу (чтобы Railway точно его нашел)
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(base_dir, 'datas.csv')
+    
+    if not os.path.exists(file_path):
+        print(f"КРИТИЧЕСКАЯ ОШИБКА: Файл не найден по пути {file_path}")
+        return
+
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
@@ -23,7 +28,13 @@ def load_csv_data():
                 ul = float(row['upload_mbps'])
                 ping = float(row['ping'])
                 
-                # Округление для тепловой карты (сетка ~100x100м)
+                # 1. Сохраняем ТОЧНЫЕ координаты (без округления)
+                RAW_POINTS.append({
+                    'lat': lat, 'lon': lon, 
+                    'dl': dl, 'ul': ul, 'ping': ping
+                })
+                
+                # 2. Формируем ТЕПЛОВУЮ КАРТУ (сетку) параллельно
                 rlat = round(lat, 3)
                 rlon = round(lon, 3)
                 key = (rlat, rlon)
@@ -36,21 +47,21 @@ def load_csv_data():
                 GRID[key]['ping_sum'] += ping
                 GRID[key]['count'] += 1
                 
-        # Вычисляем средние значения для каждого "квадрата"
+        # Вычисляем средние значения для тепловой карты
         for k in GRID:
             c = GRID[k]['count']
             GRID[k]['avg_dl'] = GRID[k]['dl_sum'] / c
             GRID[k]['avg_ul'] = GRID[k]['ul_sum'] / c
             GRID[k]['avg_ping'] = GRID[k]['ping_sum'] / c
             
-        print(f"Успешно загружено и сгруппировано {len(GRID)} зон на основе CSV.")
+        print(f"Успешно загружено {len(RAW_POINTS)} точных замеров и {len(GRID)} зон тепловой карты.")
     except Exception as e:
-        print(f"Ошибка при загрузке datas.csv: {e}. Проверьте, что файл лежит рядом со скриптом.")
+        print(f"Ошибка при обработке datas.csv: {e}")
 
 # Запускаем загрузку при старте
 load_csv_data()
 
-# Формула Хаверсина для вычисления расстояния в метрах между координатами
+# Формула Хаверсина
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371000 # радиус Земли в метрах
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
