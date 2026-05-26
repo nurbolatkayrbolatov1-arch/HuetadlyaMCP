@@ -485,4 +485,4 @@ def get_all_districts_summary() -> str:
     }, ensure_ascii=False, indent=2)
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+    mcp.run(transport="sse")
